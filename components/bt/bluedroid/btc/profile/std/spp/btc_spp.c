@@ -29,7 +29,12 @@
 #include <sys/fcntl.h>
 #include "esp_vfs.h"
 #include "esp_vfs_dev.h"
+#include "lwip/opt.h" // just for LWIP_SOCKET_OFFSET
 
+/**
+ * BTC_SPP_FDS is the number of file descriptors this VFS driver registers
+ */
+#define BTC_SPP_FDS         32
 
 #if (defined BTC_SPP_INCLUDED && BTC_SPP_INCLUDED == TRUE)
 
@@ -199,12 +204,12 @@ static void *btc_spp_rfcomm_inter_cb(tBTA_JV_EVT event, tBTA_JV *p_data, void *u
     case BTA_JV_RFCOMM_SRV_OPEN_EVT:
         slot = find_slot_by_id(id);
         if (!slot) {
-            LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+            BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
             break;
         }
         slot_new = malloc_spp_slot();
         if (!slot_new) {
-            LOG_ERROR("%s unable to malloc RFCOMM slot!", __func__);
+            BTC_TRACE_ERROR("%s unable to malloc RFCOMM slot!", __func__);
             break;
         }
         new_user_data = (void *)(uintptr_t)slot_new->id;
@@ -225,7 +230,7 @@ static void *btc_spp_rfcomm_inter_cb(tBTA_JV_EVT event, tBTA_JV *p_data, void *u
     case BTA_JV_RFCOMM_OPEN_EVT:
         slot = find_slot_by_id(id);
         if (!slot) {
-            LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+            BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
             break;
         }
         slot->connected = TRUE;
@@ -235,7 +240,7 @@ static void *btc_spp_rfcomm_inter_cb(tBTA_JV_EVT event, tBTA_JV *p_data, void *u
     case BTA_JV_RFCOMM_CLOSE_EVT:
         slot = find_slot_by_id(id);
         if (!slot) {
-            LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+            BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
             break;
         }
         if (slot->connected) {
@@ -259,7 +264,7 @@ static void *btc_spp_rfcomm_inter_cb(tBTA_JV_EVT event, tBTA_JV *p_data, void *u
                                   sizeof(tBTA_JV), NULL);
 
     if (status != BT_STATUS_SUCCESS) {
-        LOG_ERROR("%s btc_transfer_context failed", __func__);
+        BTC_TRACE_ERROR("%s btc_transfer_context failed", __func__);
     }
     return new_user_data;
 }
@@ -276,12 +281,12 @@ static void btc_spp_dm_inter_cb(tBTA_JV_EVT event, tBTA_JV *p_data, void *user_d
         osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
         slot = find_slot_by_id(id);
         if (!slot) {
-            LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+            BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
             osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
             break;
         }
         if (p_data->scn == 0) {
-            LOG_ERROR("%s unable to get scn, start server fail!", __func__);
+            BTC_TRACE_ERROR("%s unable to get scn, start server fail!", __func__);
             btc_create_server_fail_cb();
             free_spp_slot(slot);
             osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
@@ -296,7 +301,7 @@ static void btc_spp_dm_inter_cb(tBTA_JV_EVT event, tBTA_JV *p_data, void *user_d
         osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
         slot = find_slot_by_id(id);
         if (!slot) {
-            LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+            BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
             osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
             break;
         }
@@ -305,7 +310,7 @@ static void btc_spp_dm_inter_cb(tBTA_JV_EVT event, tBTA_JV *p_data, void *user_d
             BTA_JvRfcommStartServer(slot->security, slot->role, slot->scn,
                                     slot->max_session, (tBTA_JV_RFCOMM_CBACK *)btc_spp_rfcomm_inter_cb, (void *)slot->id);
         } else {
-            LOG_ERROR("%s unable to create record, start server fail!", __func__);
+            BTC_TRACE_ERROR("%s unable to create record, start server fail!", __func__);
             btc_create_server_fail_cb();
             BTA_JvFreeChannel(slot->scn, BTA_JV_CONN_TYPE_RFCOMM);
             free_spp_slot(slot);
@@ -320,7 +325,7 @@ static void btc_spp_dm_inter_cb(tBTA_JV_EVT event, tBTA_JV *p_data, void *user_d
         status = btc_transfer_context(&msg, p_data, sizeof(tBTA_JV), NULL);
 
         if (status != BT_STATUS_SUCCESS) {
-            LOG_ERROR("%s btc_transfer_context failed\n", __func__);
+            BTC_TRACE_ERROR("%s btc_transfer_context failed\n", __func__);
         }
         break;
     }
@@ -329,7 +334,7 @@ static void btc_spp_dm_inter_cb(tBTA_JV_EVT event, tBTA_JV *p_data, void *user_d
 static void btc_spp_init(btc_spp_args_t *arg)
 {
     if (osi_mutex_new(&spp_local_param.spp_slot_mutex) != 0) {
-        LOG_ERROR("%s osi_mutex_new failed\n", __func__);
+        BTC_TRACE_ERROR("%s osi_mutex_new failed\n", __func__);
     }
     spp_local_param.spp_mode = arg->init.mode;
     spp_local_param.spp_slot_id = 0;
@@ -348,6 +353,7 @@ static void btc_spp_uninit(void)
     }
     for (size_t i = 1; i <= BTA_JV_MAX_RFC_SR_SESSION; i++) {
         if (spp_local_param.spp_slots[i] != NULL && !(spp_local_param.spp_slots[i]->connected)) {
+            BTA_JvRfcommStopServer(spp_local_param.spp_slots[i]->sdp_handle, (void *)spp_local_param.spp_slots[i]->id);
             BTA_JvDeleteRecord(spp_local_param.spp_slots[i]->sdp_handle);
             BTA_JvFreeChannel(spp_local_param.spp_slots[i]->scn, BTA_JV_CONN_TYPE_RFCOMM);
             free_spp_slot(spp_local_param.spp_slots[i]);
@@ -370,7 +376,7 @@ static void btc_spp_connect(btc_spp_args_t *arg)
     osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
     spp_slot_t *slot = malloc_spp_slot();
     if (!slot) {
-        LOG_ERROR("%s unable to malloc RFCOMM slot!", __func__);
+        BTC_TRACE_ERROR("%s unable to malloc RFCOMM slot!", __func__);
         osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
         return;
     }
@@ -388,7 +394,7 @@ static void btc_spp_disconnect(btc_spp_args_t *arg)
     osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
     spp_slot_t *slot = find_slot_by_handle(arg->disconnect.handle);
     if (!slot) {
-        LOG_ERROR("%s unable to find RFCOMM slot! disconnect fail!", __func__);
+        BTC_TRACE_ERROR("%s unable to find RFCOMM slot! disconnect fail!", __func__);
         osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
         return;
     }
@@ -403,7 +409,7 @@ static void btc_spp_start_srv(btc_spp_args_t *arg)
     osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
     spp_slot_t *slot = malloc_spp_slot();
     if (!slot) {
-        LOG_ERROR("%s unable to malloc RFCOMM slot!", __func__);
+        BTC_TRACE_ERROR("%s unable to malloc RFCOMM slot!", __func__);
         osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
         return;
     }
@@ -422,7 +428,7 @@ static void btc_spp_write(btc_spp_args_t *arg)
     osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
     spp_slot_t *slot = find_slot_by_handle(arg->write.handle);
     if (!slot) {
-        LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+        BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
         osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
         return;
     }
@@ -456,9 +462,9 @@ void btc_spp_arg_deep_copy(btc_msg_t *msg, void *p_dest, void *p_src)
         if (dst->start_discovery.p_uuid_list) {
             memcpy(dst->start_discovery.p_uuid_list, src->start_discovery.p_uuid_list, src->start_discovery.num_uuid * sizeof(tSDP_UUID));
         } else if (src->start_discovery.num_uuid == 0) {
-            LOG_ERROR("%s %d no mem\n", __func__, msg->act);
+            BTC_TRACE_ERROR("%s %d no mem\n", __func__, msg->act);
         } else {
-            LOG_ERROR("%s %d osi_malloc failed\n", __func__, msg->act);
+            BTC_TRACE_ERROR("%s %d osi_malloc failed\n", __func__, msg->act);
         }
         break;
     case BTC_SPP_ACT_WRITE:
@@ -466,9 +472,9 @@ void btc_spp_arg_deep_copy(btc_msg_t *msg, void *p_dest, void *p_src)
         if (dst->write.p_data) {
             memcpy(dst->write.p_data, src->write.p_data, src->write.len);
         } else if (src->write.len == 0) {
-            LOG_DEBUG("%s %d no mem\n", __func__, msg->act);
+            BTC_TRACE_DEBUG("%s %d no mem\n", __func__, msg->act);
         } else {
-            LOG_ERROR("%s %d osi_malloc failed\n", __func__, msg->act);
+            BTC_TRACE_ERROR("%s %d osi_malloc failed\n", __func__, msg->act);
         }
         break;
     default:
@@ -517,7 +523,7 @@ void btc_spp_call_handler(btc_msg_t *msg)
         btc_spp_write(arg);
         break;
     default:
-        LOG_ERROR("%s: Unhandled event (%d)!\n", __FUNCTION__, msg->act);
+        BTC_TRACE_ERROR("%s: Unhandled event (%d)!\n", __FUNCTION__, msg->act);
         break;
     }
     btc_spp_arg_deep_free(msg);
@@ -551,7 +557,7 @@ void btc_spp_cb_handler(btc_msg_t *msg)
             osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
             slot = find_slot_by_handle(p_data->rfc_open.handle);
             if (!slot) {
-                LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+                BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
                 osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
                 break;
             }
@@ -575,7 +581,7 @@ void btc_spp_cb_handler(btc_msg_t *msg)
             osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
             slot = find_slot_by_handle(p_data->rfc_srv_open.handle);
             if (!slot) {
-                LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+                BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
                 osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
                 break;
             }
@@ -592,7 +598,7 @@ void btc_spp_cb_handler(btc_msg_t *msg)
         osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
         slot = find_slot_by_handle(p_data->rfc_write.handle);
         if (!slot) {
-            LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+            BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
             osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
             break;
         }
@@ -644,7 +650,7 @@ void btc_spp_cb_handler(btc_msg_t *msg)
             osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
             slot = find_slot_by_handle(p_data->rfc_cong.handle);
             if (!slot) {
-                LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+                BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
                 osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
                 break;
             }
@@ -678,7 +684,7 @@ void btc_spp_cb_handler(btc_msg_t *msg)
         osi_free (p_data->data_ind.p_buf);
         break;
     default:
-        LOG_DEBUG("%s: Unhandled event (%d)!", __FUNCTION__, msg->act);
+        BTC_TRACE_DEBUG("%s: Unhandled event (%d)!", __FUNCTION__, msg->act);
         break;
     }
 
@@ -701,7 +707,7 @@ static void spp_delay_append(list_t *list, BT_HDR *p_buf){
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }
     osi_free(p_buf);
-    LOG_WARN("%s There is too much data not accepted, discard it!", __func__);
+    BTC_TRACE_WARNING("%s There is too much data not accepted, discard it!", __func__);
 }
 
 int bta_co_rfc_data_incoming(void *user_data, BT_HDR *p_buf)
@@ -717,7 +723,7 @@ int bta_co_rfc_data_incoming(void *user_data, BT_HDR *p_buf)
     osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
     spp_slot_t *slot = find_slot_by_id(id);
     if (!slot) {
-        LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+        BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
         osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
         return 0;
     }
@@ -728,7 +734,7 @@ int bta_co_rfc_data_incoming(void *user_data, BT_HDR *p_buf)
         status = btc_transfer_context(&msg, &p_data,
                                       sizeof(tBTA_JV), NULL);
         if (status != BT_STATUS_SUCCESS) {
-            LOG_ERROR("%s btc_transfer_context failed\n", __func__);
+            BTC_TRACE_ERROR("%s btc_transfer_context failed\n", __func__);
         }
     } else {
         if (list_is_empty(slot->incoming_list)) {
@@ -763,7 +769,7 @@ static ssize_t spp_vfs_write(int fd, const void * data, size_t size)
     osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
     spp_slot_t *slot = find_slot_by_fd(fd);
     if (!slot) {
-        LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+        BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
         osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
         return -1;
     }
@@ -782,7 +788,7 @@ static int spp_vfs_close(int fd)
     osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
     spp_slot_t *slot = find_slot_by_fd(fd);
     if (!slot) {
-        LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+        BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
         osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
         return -1;
     }
@@ -810,7 +816,7 @@ static ssize_t spp_vfs_read(int fd, void * dst, size_t size)
     osi_mutex_lock(&spp_local_param.spp_slot_mutex, OSI_MUTEX_MAX_TIMEOUT);
     spp_slot_t *slot = find_slot_by_fd(fd);
     if (!slot) {
-        LOG_ERROR("%s unable to find RFCOMM slot!", __func__);
+        BTC_TRACE_ERROR("%s unable to find RFCOMM slot!", __func__);
         osi_mutex_unlock(&spp_local_param.spp_slot_mutex);
         return -1;
     }
@@ -828,7 +834,7 @@ static ssize_t spp_vfs_read(int fd, void * dst, size_t size)
 void btc_spp_vfs_register()
 {
     esp_vfs_t vfs = {
-        .flags = ESP_VFS_FLAG_DEFAULT | ESP_VFS_FLAG_SHARED_FD_SPACE,
+        .flags = ESP_VFS_FLAG_DEFAULT,
         .write = spp_vfs_write,
         .open = NULL,
         .fstat = NULL,
@@ -836,7 +842,14 @@ void btc_spp_vfs_register()
         .read = spp_vfs_read,
         .fcntl = NULL
     };
-    ESP_ERROR_CHECK(esp_vfs_register_socket_space(&vfs, NULL, &spp_local_param.spp_min_fd, &spp_local_param.spp_max_fd));
+    // File descriptors from LWIP_SOCKET_OFFSET to MAX_FDS-1 are registered
+    // for sockets. So here we register from (LWIP_SOCKET_OFFSET - BTC_SPP_FDS)
+    // to (LWIP_SOCKET_OFFSET-1) leaving unregistered from 0 to
+    // .(LWIP_SOCKET_OFFSET - BTC_SPP_FDS - 1).
+    spp_local_param.spp_min_fd = LWIP_SOCKET_OFFSET - BTC_SPP_FDS;
+    assert(spp_local_param.spp_min_fd >= 0); //TODO return error instead
+    spp_local_param.spp_max_fd = LWIP_SOCKET_OFFSET;
+    ESP_ERROR_CHECK(esp_vfs_register_fd_range(&vfs, NULL, spp_local_param.spp_min_fd, spp_local_param.spp_max_fd));//TODO return error if fails
     spp_local_param.spp_fd = spp_local_param.spp_min_fd;
 }
 

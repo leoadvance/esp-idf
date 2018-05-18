@@ -508,9 +508,10 @@ static void touch_pad_filter_cb(void *arg)
     if (s_touch_pad_filter == NULL) {
         return;
     }
-    uint16_t val;
+    uint16_t val = 0;
     for (int i = 0; i < TOUCH_PAD_MAX; i++) {
-        touch_pad_read(i, &val);
+        (void) touch_pad_read(i, &val);
+        // if touch_pad_read fails then the previous value of val is used
         s_touch_pad_filter->filtered_val[i] = s_touch_pad_filter->filtered_val[i] == 0 ? (val << TOUCH_PAD_SHIFT_DEFAULT) : s_touch_pad_filter->filtered_val[i];
         s_touch_pad_filter->filtered_val[i] = _touch_filter_iir((val << TOUCH_PAD_SHIFT_DEFAULT),
                 s_touch_pad_filter->filtered_val[i], TOUCH_PAD_FILTER_FACTOR_DEFAULT);
@@ -807,6 +808,7 @@ esp_err_t touch_pad_init()
         return ESP_FAIL;
     }
     touch_pad_intr_disable();
+    touch_pad_clear_group_mask(TOUCH_PAD_BIT_MASK_MAX, TOUCH_PAD_BIT_MASK_MAX, TOUCH_PAD_BIT_MASK_MAX);
     touch_pad_set_fsm_mode(TOUCH_FSM_MODE_DEFAULT);
     touch_pad_set_trigger_mode(TOUCH_TRIGGER_MODE_DEFAULT);
     touch_pad_set_trigger_source(TOUCH_TRIGGER_SOURCE_DEFAULT);
