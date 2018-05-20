@@ -25,7 +25,9 @@
 #include <sys/types.h>
 #include <sys/reent.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <dirent.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,6 +56,11 @@ extern "C" {
  * Flag which indicates that FS needs extra context pointer in syscalls.
  */
 #define ESP_VFS_FLAG_CONTEXT_PTR    1
+
+/*
+ * @brief VFS identificator used for esp_vfs_register_with_id()
+ */
+typedef int esp_vfs_id_t;
 
 /**
  * @brief VFS definition structure
@@ -167,6 +174,16 @@ typedef struct
         int (*access_p)(void* ctx, const char *path, int amode);
         int (*access)(const char *path, int amode);
     };
+    /** start_select is called for setting up synchronous I/O multiplexing of the desired file descriptors in the given VFS */
+    esp_err_t (*start_select)(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds);
+    /** socket select function for socket FDs with the functionality of POSIX select(); this should be set only for the socket VFS */
+    int (*socket_select)(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, struct timeval *timeout);
+    /** called by VFS to interrupt the socket_select call when select is activated from a non-socket VFS driver; set only for the socket driver */
+    void (*stop_socket_select)();
+    /** stop_socket_select which can be called from ISR; set only for the socket driver */
+    void (*stop_socket_select_isr)(BaseType_t *woken);
+    /** end_select is called to stop the I/O multiplexing and deinitialize the environment created by start_select for the given VFS */
+    void (*end_select)();
 } esp_vfs_t;
 
 
@@ -210,6 +227,24 @@ esp_err_t esp_vfs_register(const char* base_path, const esp_vfs_t* vfs, void* ct
 esp_err_t esp_vfs_register_fd_range(const esp_vfs_t *vfs, void *ctx, int min_fd, int max_fd);
 
 /**
+ * Special case function for registering a VFS that uses a method other than
+ * open() to open new file descriptors. In comparison with
+ * esp_vfs_register_fd_range, this function doesn't pre-registers an interval
+ * of file descriptors. File descriptors can be registered later, by using
+ * esp_vfs_register_fd.
+ *
+ * @param vfs Pointer to esp_vfs_t. Meaning is the same as for esp_vfs_register().
+ * @param ctx Pointer to context structure. Meaning is the same as for esp_vfs_register().
+ * @param vfs_id Here will be written the VFS ID which can be passed to
+ *               esp_vfs_register_fd for registering file descriptors.
+ *
+ * @return  ESP_OK if successful, ESP_ERR_NO_MEM if too many VFSes are
+ *          registered, ESP_ERR_INVALID_ARG if the file descriptor boundaries
+ *          are incorrect.
+ */
+esp_err_t esp_vfs_register_with_id(const esp_vfs_t *vfs, void *ctx, esp_vfs_id_t *vfs_id);
+
+/**
  * Unregister a virtual filesystem for given path prefix
  *
  * @param base_path  file prefix previously used in esp_vfs_register call
@@ -217,6 +252,31 @@ esp_err_t esp_vfs_register_fd_range(const esp_vfs_t *vfs, void *ctx, int min_fd,
  *         hasn't been registered
  */
 esp_err_t esp_vfs_unregister(const char* base_path);
+
+/**
+ * Special function for registering another file descriptor for a VFS registered
+ * by esp_vfs_register_with_id.
+ *
+ * @param vfs_id VFS identificator returned by esp_vfs_register_with_id.
+ * @param fd The registered file descriptor will be written to this address.
+ *
+ * @return  ESP_OK if the registration is successful,
+ *          ESP_ERR_NO_MEM if too many file descriptors are registered,
+ *          ESP_ERR_INVALID_ARG if the arguments are incorrect.
+ */
+esp_err_t esp_vfs_register_fd(esp_vfs_id_t vfs_id, int *fd);
+
+/**
+ * Special function for unregistering a file descriptor belonging to a VFS
+ * registered by esp_vfs_register_with_id.
+ *
+ * @param vfs_id VFS identificator returned by esp_vfs_register_with_id.
+ * @param fd File descriptor which should be unregistered.
+ *
+ * @return  ESP_OK if the registration is successful,
+ *          ESP_ERR_INVALID_ARG if the arguments are incorrect.
+ */
+esp_err_t esp_vfs_unregister_fd(esp_vfs_id_t vfs_id, int fd);
 
 /**
  * These functions are to be used in newlib syscall table. They will be called by
@@ -234,6 +294,50 @@ int esp_vfs_link(struct _reent *r, const char* n1, const char* n2);
 int esp_vfs_unlink(struct _reent *r, const char *path);
 int esp_vfs_rename(struct _reent *r, const char *src, const char *dst);
 /**@}*/
+
+/**
+ * @brief Synchronous I/O multiplexing which implements the functionality of POSIX select() for VFS
+ * @param nfds      Specifies the range of descriptors which should be checked.
+ *                  The first nfds descriptors will be checked in each set.
+ * @param readfds   If not NULL, then points to a descriptor set that on input
+ *                  specifies which descriptors should be checked for being
+ *                  ready to read, and on output indicates which descriptors
+ *                  are ready to read.
+ * @param writefds  If not NULL, then points to a descriptor set that on input
+ *                  specifies which descriptors should be checked for being
+ *                  ready to write, and on output indicates which descriptors
+ *                  are ready to write.
+ * @param errorfds  If not NULL, then points to a descriptor set that on input
+ *                  specifies which descriptors should be checked for error
+ *                  conditions, and on output indicates which descriptors
+ *                  have error conditions.
+ * @param timeout   If not NULL, then points to timeval structure which
+ *                  specifies the time period after which the functions should
+ *                  time-out and return. If it is NULL, then the function will
+ *                  not time-out.
+ *
+ * @return      The number of descriptors set in the descriptor sets, or -1
+ *              when an error (specified by errno) have occurred.
+ */
+int esp_vfs_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, struct timeval *timeout);
+
+/**
+ * @brief Notification from a VFS driver about a read/write/error condition
+ *
+ * This function is called when the VFS driver detects a read/write/error
+ * condition as it was requested by the previous call to start_select.
+ */
+void esp_vfs_select_triggered();
+
+/**
+ * @brief Notification from a VFS driver about a read/write/error condition (ISR version)
+ *
+ * This function is called when the VFS driver detects a read/write/error
+ * condition as it was requested by the previous call to start_select.
+ *
+ * @param woken is set to pdTRUE if the function wakes up a task with higher priority
+ */
+void esp_vfs_select_triggered_isr(BaseType_t *woken);
 
 #ifdef __cplusplus
 } // extern "C"
