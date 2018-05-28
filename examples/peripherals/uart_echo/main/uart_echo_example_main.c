@@ -30,6 +30,39 @@
 
 #define BUF_SIZE (1024)
 
+
+#define GPIO_OUTPUT_IO_0    34
+#define GPIO_OUTPUT_IO_1    35
+#define GPIO_OUTPUT_PIN_SEL  ((1ULL<<GPIO_OUTPUT_IO_0) | (1ULL<<GPIO_OUTPUT_IO_1))
+
+static void gpio_task_example(void* arg)
+{
+    uint32_t io_num;
+    uint32_t cnt = 0;
+    gpio_config_t io_conf;
+    //disable interrupt
+    io_conf.intr_type = GPIO_PIN_INTR_DISABLE;
+    //set as output mode
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    //bit mask of the pins that you want to set,e.g.GPIO18/19
+    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    //disable pull-down mode
+    io_conf.pull_down_en = 0;
+    //disable pull-up mode
+    io_conf.pull_up_en = 0;
+    //configure GPIO with the given settings
+    gpio_config(&io_conf);
+
+    for(;;)
+    {
+    	printf("cnt: %d\n", cnt);
+        vTaskDelay(500 / portTICK_RATE_MS);
+        gpio_set_level(GPIO_OUTPUT_IO_0, cnt % 2);
+        gpio_set_level(GPIO_OUTPUT_IO_1, (cnt + 1)% 2);
+        cnt++;
+    }
+}
+
 static void echo_task()
 {
     /* Configure parameters of an UART driver,
@@ -59,4 +92,6 @@ static void echo_task()
 void app_main()
 {
     xTaskCreate(echo_task, "uart_echo_task", 1024, NULL, 10, NULL);
+    //start gpio task
+    xTaskCreate(gpio_task_example, "gpio_task_example", 2048, NULL, 10, NULL);
 }
