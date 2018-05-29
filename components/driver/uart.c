@@ -651,6 +651,9 @@ esp_err_t uart_param_config(uart_port_t uart_num, const uart_config_t *uart_conf
     r = uart_set_tx_idle_num(uart_num, UART_TX_IDLE_NUM_DEFAULT);
     if (r != ESP_OK) return r;
     r = uart_set_stop_bits(uart_num, uart_config->stop_bits);
+    //A hardware reset does not reset the fifo,
+    //so we need to reset the fifo manually.
+    uart_reset_rx_fifo(uart_num);
     return r;
 }
 
@@ -1159,8 +1162,8 @@ int uart_read_bytes(uart_port_t uart_num, uint8_t* buf, uint32_t length, TickTyp
                 if(res == pdTRUE) {
                     UART_ENTER_CRITICAL(&uart_spinlock[uart_num]);
                     p_uart_obj[uart_num]->rx_buffered_len += p_uart_obj[uart_num]->rx_stash_len;
-                    UART_EXIT_CRITICAL(&uart_spinlock[uart_num]);
                     p_uart_obj[uart_num]->rx_buffer_full_flg = false;
+                    UART_EXIT_CRITICAL(&uart_spinlock[uart_num]);
                     uart_enable_rx_intr(p_uart_obj[uart_num]->uart_num);
                 }
             }
@@ -1205,6 +1208,14 @@ esp_err_t uart_flush_input(uart_port_t uart_num)
         }
         data = (uint8_t*) xRingbufferReceive(p_uart->rx_ring_buf, &size, (portTickType) 0);
         if(data == NULL) {
+            if( p_uart_obj[uart_num]->rx_buffered_len != 0 ) {
+                ESP_LOGE(UART_TAG, "rx_buffered_len error");
+                p_uart_obj[uart_num]->rx_buffered_len = 0;
+            }
+            //We also need to clear the `rx_buffer_full_flg` here.
+            UART_ENTER_CRITICAL(&uart_spinlock[uart_num]);
+            p_uart_obj[uart_num]->rx_buffer_full_flg = false;
+            UART_EXIT_CRITICAL(&uart_spinlock[uart_num]);
             break;
         }
         UART_ENTER_CRITICAL(&uart_spinlock[uart_num]);
@@ -1217,8 +1228,8 @@ esp_err_t uart_flush_input(uart_port_t uart_num)
             if(res == pdTRUE) {
                 UART_ENTER_CRITICAL(&uart_spinlock[uart_num]);
                 p_uart_obj[uart_num]->rx_buffered_len += p_uart_obj[uart_num]->rx_stash_len;
-                UART_EXIT_CRITICAL(&uart_spinlock[uart_num]);
                 p_uart_obj[uart_num]->rx_buffer_full_flg = false;
+                UART_EXIT_CRITICAL(&uart_spinlock[uart_num]);
             }
         }
     }

@@ -54,6 +54,8 @@
 #define BTDM_CFG_BT_DATA_RELEASE            (1<<0)
 #define BTDM_CFG_HCI_UART                   (1<<1)
 #define BTDM_CFG_CONTROLLER_RUN_APP_CPU     (1<<2)
+#define BTDM_CFG_SCAN_DUPLICATE_OPTIONS     (1<<3)
+#define BTDM_CFG_SEND_ADV_RESERVED_SIZE     (1<<4)
 /* Other reserved for future */
 
 /* not for user call, so don't put to include file */
@@ -97,6 +99,7 @@ extern int ble_txpwr_set(int power_type, int power_level);
 extern int ble_txpwr_get(int power_type);
 extern int bredr_txpwr_set(int min_power_level, int max_power_level);
 extern int bredr_txpwr_get(int *min_power_level, int *max_power_level);
+extern void bredr_sco_datapath_set(uint8_t data_path);
 
 extern char _bss_start_btdm;
 extern char _bss_end_btdm;
@@ -705,6 +708,10 @@ static uint32_t btdm_config_mask_load(void)
 #if CONFIG_BTDM_CONTROLLER_PINNED_TO_CORE == 1
     mask |= BTDM_CFG_CONTROLLER_RUN_APP_CPU;
 #endif
+    mask |= BTDM_CFG_SCAN_DUPLICATE_OPTIONS;
+
+    mask |= BTDM_CFG_SEND_ADV_RESERVED_SIZE;
+
     return mask;
 }
 
@@ -1101,6 +1108,15 @@ void esp_bt_controller_wakeup_request(void)
     }
 
     btdm_wakeup_request();
+}
+
+esp_err_t esp_bredr_sco_datapath_set(esp_sco_data_path_t data_path)
+{
+    if (btdm_controller_status != ESP_BT_CONTROLLER_STATUS_ENABLED) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    bredr_sco_datapath_set(data_path);
+    return ESP_OK;
 }
 
 #endif /*  CONFIG_BT_ENABLED */
