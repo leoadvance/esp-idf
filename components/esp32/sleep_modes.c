@@ -203,7 +203,7 @@ void IRAM_ATTR esp_deep_sleep_start()
 {
     // record current RTC time
     s_config.rtc_ticks_at_sleep_start = rtc_time_get();
-
+    esp_sync_counters_rtc_and_frc();
     // Configure wake stub
     if (esp_get_deep_sleep_wake_stub() == NULL) {
         esp_set_deep_sleep_wake_stub(esp_wake_deep_sleep);
@@ -599,9 +599,9 @@ static uint32_t get_power_down_flags()
     // These labels are defined in the linker script:
     extern int _rtc_data_start, _rtc_data_end, _rtc_bss_start, _rtc_bss_end;
 
-    if (s_config.pd_options[ESP_PD_DOMAIN_RTC_SLOW_MEM] == ESP_PD_OPTION_AUTO ||
-            &_rtc_data_end > &_rtc_data_start ||
-            &_rtc_bss_end > &_rtc_bss_start) {
+    if ((s_config.pd_options[ESP_PD_DOMAIN_RTC_SLOW_MEM] == ESP_PD_OPTION_AUTO) &&
+            (&_rtc_data_end > &_rtc_data_start || &_rtc_bss_end > &_rtc_bss_start ||
+            (s_config.wakeup_triggers & RTC_ULP_TRIG_EN))) {
         s_config.pd_options[ESP_PD_DOMAIN_RTC_SLOW_MEM] = ESP_PD_OPTION_ON;
     }
 

@@ -67,6 +67,7 @@
 #include "esp_wifi_types.h"
 #include "esp_wifi_crypto_types.h"
 #include "esp_event.h"
+#include "esp_wifi_os_adapter.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -93,6 +94,7 @@ extern "C" {
  */
 typedef struct {
     system_event_handler_t event_handler;          /**< WiFi event handler */
+    wifi_osi_funcs_t*      osi_funcs;              /**< WiFi OS functions */
     wpa_crypto_funcs_t     wpa_crypto_funcs;       /**< WiFi station crypto functions when connect */
     int                    static_rx_buf_num;      /**< WiFi static RX buffer number */
     int                    dynamic_rx_buf_num;     /**< WiFi dynamic RX buffer number */
@@ -176,6 +178,7 @@ extern const wpa_crypto_funcs_t g_wifi_default_wpa_crypto_funcs;
 
 #define WIFI_INIT_CONFIG_DEFAULT() { \
     .event_handler = &esp_event_send, \
+    .osi_funcs = &g_wifi_osi_funcs, \
     .wpa_crypto_funcs = g_wifi_default_wpa_crypto_funcs, \
     .static_rx_buf_num = CONFIG_ESP32_WIFI_STATIC_RX_BUFFER_NUM,\
     .dynamic_rx_buf_num = CONFIG_ESP32_WIFI_DYNAMIC_RX_BUFFER_NUM,\
@@ -978,7 +981,7 @@ esp_err_t esp_wifi_80211_tx(wifi_interface_t ifx, const void *buffer, int len, b
   *        Each time a CSI data is received, the callback function will be called.
   *
   * @param ctx context argument, passed to esp_wifi_set_csi_rx_cb() when registering callback function. 
-  * @param data CSI data received. 
+  * @param data CSI data received. The memory that it points to will be deallocated after callback function returns. 
   *
   */
 typedef void (* wifi_csi_cb_t)(void *ctx, wifi_csi_info_t *data);
