@@ -11,6 +11,10 @@
 #include "freertos/task.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 /**
  * This is an example which echos any data it receives on UART1 back to the sender,
  * with hardware flow control turned off. It does not use UART driver event queue.
@@ -28,12 +32,44 @@
 #define ECHO_TEST_RTS  (UART_PIN_NO_CHANGE)
 #define ECHO_TEST_CTS  (UART_PIN_NO_CHANGE)
 
-#define BUF_SIZE (1024)
+#define BUF_SIZE (128)
+
+#define UART_RX_BUFFER 32
+typedef struct
+{
+    unsigned char       update;										    // 置一时更新
+	float               value;										    // 当前值
+    float               MAX_value;										// 最大值
+
+}HCHO_t;
+
+/* Private variables ---------------------------------------------------------*/
+HCHO_t     HCHO;
+static unsigned char receive_data[UART_RX_BUFFER];
+static unsigned char receive_data_S[256];
 
 
 #define GPIO_OUTPUT_IO_0    34
 #define GPIO_OUTPUT_IO_1    35
 #define GPIO_OUTPUT_PIN_SEL  ((1ULL<<GPIO_OUTPUT_IO_0) | (1ULL<<GPIO_OUTPUT_IO_1))
+static unsigned char FucCheckSum(unsigned char *data, unsigned char ln)
+{
+
+    unsigned char j, tempq = 0;
+
+
+    for(j = 0; j < (ln - 2); j++)
+    {
+
+        tempq += data[j + 1];
+
+    }
+    // LOG("\r\n计算校验值tempq = 0x%02x\r\n", tempq);
+    tempq = (~tempq);
+    // LOG("\r\n计算校验值~tempq = 0x%02x\r\n", tempq);
+    return(tempq + 1);
+
+}
 
 static void gpio_task_example(void* arg)
 {
@@ -62,7 +98,54 @@ static void gpio_task_example(void* arg)
         cnt++;
     }
 }
+static void HCHO_Read(void)
+{
+    int i,j, received_len;
+    // 接收数据
+    memset(receive_data, 0, UART_RX_BUFFER);
+    memset(receive_data_S, 0, 256);
 
+    received_len = uart_read_bytes(1, receive_data, UART_RX_BUFFER, 100 / portTICK_RATE_MS);
+    if(received_len > 0)
+    {
+        for (i = 0, j = 0; i < received_len; i++)
+        {
+            sprintf((char*)&receive_data_S[j], "0x%02X ", receive_data[i]);
+            j += 5;
+        }
+        receive_data_S[j] = 0;
+        printf("\r\n接收到数据: %s\r\n", receive_data_S);
+        // 长度正确
+        if(received_len == 9)
+        {
+
+            if ((receive_data[0] == 0xFF) && (receive_data[1] = 0x17))
+            {
+                // 校验
+            	printf("\r\n计算校验值\r\n");
+
+                if (FucCheckSum(receive_data, received_len) == receive_data[received_len - 1])
+                {
+                    HCHO.value      = (receive_data[5] + (receive_data[4] * 256));
+                    HCHO.value     *= 0.00125;
+                    HCHO.MAX_value  = (receive_data[7] + (receive_data[6] * 256));
+                    HCHO.MAX_value *= 0.00125;
+                    HCHO.update     = 1;
+                    printf("\r\n甲醛 = %04.3f mg/M3， 最大量程 = %04.3f mg/M3\r\n", HCHO.value, HCHO.MAX_value);
+                }
+                else
+                {
+                	printf("\r\n甲醛校验出错\r\n");
+                }
+            }
+        }
+        else if (received_len > 0)
+        {
+        	printf("\r\n接收到错误甲醛数据, 长度 = %d \r\n", received_len);
+        }
+
+    }
+}
 static void echo_task()
 {
     /* Configure parameters of an UART driver,
@@ -82,16 +165,21 @@ static void echo_task()
     uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
 
     while (1) {
-        // Read data from the UART
-        int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, 20 / portTICK_RATE_MS);
-        // Write data back to the UART
-        uart_write_bytes(UART_NUM_1, (const char *) data, len);
+    	HCHO_Read();
+//        // Read data from the UART
+//        int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, 100 / portTICK_RATE_MS);
+//        // Write data back to the UART
+////        uart_write_bytes(UART_NUM_0, (const char *) data, len);
+//        if (len > 0)
+//        {
+//        	printf("接收数据长度%d字节\r\n",len);
+//        }
     }
 }
 
 void app_main()
 {
-    xTaskCreate(echo_task, "uart_echo_task", 1024, NULL, 10, NULL);
+    xTaskCreate(echo_task, "uart_echo_task", 2048, NULL, 10, NULL);
     //start gpio task
     xTaskCreate(gpio_task_example, "gpio_task_example", 2048, NULL, 10, NULL);
 }

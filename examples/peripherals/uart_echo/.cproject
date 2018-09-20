@@ -62,6 +62,7 @@
 		</buildTargets>
 	</storageModule>
 	<storageModule moduleId="refreshScope" versionNumber="2">
+		<configuration configurationName="ESP32"/>
 		<configuration configurationName="Default">
 			<resource resourceType="PROJECT" workspacePath="/uart_echo"/>
 		</configuration>
