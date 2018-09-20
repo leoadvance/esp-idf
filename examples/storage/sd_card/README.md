@@ -12,7 +12,7 @@ This example demonstrates how to use an SD card with ESP32. Example does the fol
 4. Rename the file. Before renaming, check if destination file already exists using `stat` function, and remove it using `unlink` function.
 5. Open renamed file for reading, read back the line, and print it to the terminal.
 
-*Note:* despite the name, `sdmmc` component doesn't support MMC/eMMC cards yet. It is also possible to extend `sdmmc` component to support SPI mode with SD cards via SPI peripheral.
+This example support SD (SDSC, SDHC, SDXC) cards and eMMC chips.
 
 ## Hardware
 
@@ -31,7 +31,10 @@ N/C           | WP          |         | optional, not used in the example
 
 This example doesn't utilize card detect (CD) and write protect (WP) signals from SD card slot.
 
-With the given pinout for SPI mode, same connections between the SD card and ESP32 can be used to test both SD and SPI modes, provided that the appropriate pullups are in place. In SPI mode, pins can be customized. See the initialization of ``sdspi_slot_config_t`` structure in the example code.
+With the given pinout for SPI mode, same connections between the SD card and ESP32 can be used to test both SD and SPI modes, provided that the appropriate pullups are in place. 
+See document `sd_pullup_requirements.rst` in `docs/en/api-reference/peripherals/` for more details about pullup support and compatiblities about modules and devkits. 
+
+In SPI mode, pins can be customized. See the initialization of ``sdspi_slot_config_t`` structure in the example code.
 
 ### Note about GPIO2
 
@@ -61,13 +64,14 @@ This command will burn the `XPD_SDIO_TIEH`, `XPD_SDIO_FORCE`, and `XPD_SDIO_REG`
 
 ## 4-line and 1-line modes
 
-By default, example code uses the following initializer for SDMMC host peripheral configuration:
+By default, example code uses the following initializer for SDMMC slot configuration:
 
 ```c++
-sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
 ```
 
-Among other things, this sets `host.flags` to `SDMMC_HOST_FLAG_4BIT`, which means that SD/MMC driver will switch to 4-line mode when initializing the card (initial communication always happens in 1-line mode). If some of the card's D1, D2, D3 pins are not connected to the ESP32, set `host.flags` to `SDMMC_HOST_FLAG_1BIT` — then the SD/MMC driver will not attempt to switch to 4-line mode.
+Among other things, this sets `slot_config.width = 0`, which means that SD/MMC driver will use the maximum bus width supported by the slot. For slot 1, it will switch to 4-line mode when initializing the card (initial communication always happens in 1-line mode). If some of the card's D1, D2, D3 pins are not connected to the ESP32, set `slot_config.width = 1` — then the SD/MMC driver will not attempt to switch to 4-line mode.
+
 Note that even if card's D3 line is not connected to the ESP32, it still has to be pulled up, otherwise the card will go into SPI protocol mode.
 
 ## SPI mode

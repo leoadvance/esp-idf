@@ -493,7 +493,6 @@ static esp_err_t load_cal_data_from_nvs_handle(nvs_handle handle,
         ESP_LOGD(TAG, "%s: invalid length of cal_data (%d)", __func__, length);
         return ESP_ERR_INVALID_SIZE;
     }
-    memcpy(out_cal_data->mac, sta_mac, 6);
     return ESP_OK;
 }
 
@@ -532,6 +531,18 @@ static esp_err_t store_cal_data_to_nvs_handle(nvs_handle handle,
     return err;
 }
 
+#if CONFIG_REDUCE_PHY_TX_POWER
+static void esp_phy_reduce_tx_power(esp_phy_init_data_t* init_data)
+{
+    uint8_t i;
+                                         
+    for(i = 0; i < PHY_TX_POWER_NUM; i++) {
+        // LOWEST_PHY_TX_POWER is the lowest tx power
+        init_data->params[PHY_TX_POWER_OFFSET+i] = PHY_TX_POWER_LOWEST;   
+    }
+}
+#endif
+
 void esp_phy_load_cal_and_init(phy_rf_module_t module)
 {
     esp_phy_calibration_data_t* cal_data =
@@ -541,14 +552,34 @@ void esp_phy_load_cal_and_init(phy_rf_module_t module)
         abort();
     }
 
+#if CONFIG_REDUCE_PHY_TX_POWER
+    const esp_phy_init_data_t* phy_init_data = esp_phy_get_init_data();
+    if (phy_init_data == NULL) {
+        ESP_LOGE(TAG, "failed to obtain PHY init data");
+        abort();
+    }
+
+    esp_phy_init_data_t* init_data = (esp_phy_init_data_t*) malloc(sizeof(esp_phy_init_data_t));
+    if (init_data == NULL) {
+        ESP_LOGE(TAG, "failed to allocate memory for phy init data");
+        abort();
+    }
+
+    memcpy(init_data, phy_init_data, sizeof(esp_phy_init_data_t));
+    if (esp_reset_reason() == ESP_RST_BROWNOUT) {
+        esp_phy_reduce_tx_power(init_data);
+    }
+#else
     const esp_phy_init_data_t* init_data = esp_phy_get_init_data();
     if (init_data == NULL) {
         ESP_LOGE(TAG, "failed to obtain PHY init data");
         abort();
     }
+#endif
 
 #ifdef CONFIG_ESP32_PHY_CALIBRATION_AND_DATA_STORAGE
     esp_phy_calibration_mode_t calibration_mode = PHY_RF_CAL_PARTIAL;
+    uint8_t sta_mac[6];
     if (rtc_get_reset_reason(0) == DEEPSLEEP_RESET) {
         calibration_mode = PHY_RF_CAL_NONE;
     }
@@ -558,6 +589,8 @@ void esp_phy_load_cal_and_init(phy_rf_module_t module)
         calibration_mode = PHY_RF_CAL_FULL;
     }
 
+    esp_efuse_mac_get_default(sta_mac);
+    memcpy(cal_data->mac, sta_mac, 6);
     esp_phy_rf_init(init_data, calibration_mode, cal_data, module);
 
     if (calibration_mode != PHY_RF_CAL_NONE && err != ESP_OK) {
@@ -569,7 +602,12 @@ void esp_phy_load_cal_and_init(phy_rf_module_t module)
     esp_phy_rf_init(init_data, PHY_RF_CAL_FULL, cal_data, module);
 #endif
 
+#if CONFIG_REDUCE_PHY_TX_POWER
+    esp_phy_release_init_data(phy_init_data);
+    free(init_data);
+#else
     esp_phy_release_init_data(init_data);
+#endif
 
     free(cal_data); // PHY maintains a copy of calibration data, so we can free this
 }

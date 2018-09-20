@@ -43,13 +43,13 @@ Project Properties
 
 * Click on the "C/C++ Build" properties page (top-level):
 
-  * Uncheck "Use default build command" and enter this for the custom build command: ``python ${IDF_PATH}/tools/windows/eclipse_make.py``.
+  * Uncheck "Use default build command" and enter this for the custom build command: ``python ${IDF_PATH}/tools/windows/eclipse_make.py``
 
 * Click on the "Environment" properties page under "C/C++ Build":
 
   * Click "Add..." and enter name ``BATCH_BUILD`` and value ``1``.
 
-  * Click "Add..." again, and enter name ``IDF_PATH``. The value should be the full path where ESP-IDF is installed. The IDF_PATH directory should be specified using forwards slashes not backslashes, ie *C:/Users/MyUser/Development/esp-idf*.
+  * Click "Add..." again, and enter name ``IDF_PATH``. The value should be the full path where ESP-IDF is installed. The IDF_PATH directory should be specified using forwards slashes not backslashes, ie *C:/Users/user-name/Development/esp-idf*.
 
   * Edit the PATH environment variable. Delete the existing value and replace it with ``C:\msys32\usr\bin;C:\msys32\mingw32\bin;C:\msys32\opt\xtensa-esp32-elf\bin`` (If you installed msys32 to a different directory then you'll need to change these paths to match).
 
@@ -57,13 +57,21 @@ Project Properties
 
   * Click the "Providers" tab
 
-     * In the list of providers, click "CDT GCC Built-in Compiler Settings Cygwin". Under "Command to get compiler specs", replace the text ``${COMMAND}`` at the beginning of the line with ``xtensa-esp32-elf-gcc``. This means the full "Command to get compiler specs" should be ``xtensa-esp32-elf-gcc ${FLAGS} -E -P -v -dD "${INPUTS}"``.
+    * In the list of providers, click "CDT Cross GCC Built-in Compiler Settings". Change "Command to get compiler specs" to ``xtensa-esp32-elf-gcc ${FLAGS} -std=c++11 -E -P -v -dD "${INPUTS}"``.
 
-     * In the list of providers, click "CDT GCC Build Output Parser" and type ``xtensa-esp32-elf-`` at the beginning of the Compiler command pattern, and wrap remaining part with brackets. This means the full Compiler command pattern should be ``xtensa-esp32-elf-((g?cc)|([gc]\+\+)|(clang))``
+     * In the list of providers, click "CDT GCC Build Output Parser" and change the "Compiler command pattern" to ``xtensa-esp32-elf-(gcc|g\+\+|c\+\+|cc|cpp|clang)``
 
 Navigate to "C/C++ General" -> "Indexer" property page:
 
+* Check "Enable project specific settings" to enable the rest of the settings on this page.
+
 * Uncheck "Allow heuristic resolution of includes". When this option is enabled Eclipse sometimes fails to find correct header directories.
+
+Navigate to "C/C++ Build" -> "Behavior" property page:
+
+* Check "Enable parallel build" to enable multiple build jobs in parallel.
+
+* Setting the number of jobs slightly higher than the "optimal" may give the absolute fastest builds under Windows, depending on the specific hardware being used.
 
 Building in Eclipse
 -------------------

@@ -5,7 +5,7 @@
 # Use of this script is optional, there is also a prebuilt MSYS2 environment available
 # which can be downloaded and used as-is.
 #
-# See http://esp-idf.readthedocs.io/en/latest/windows-setup.html for full details.
+# See https://docs.espressif.com/projects/esp-idf/en/latest/get-started/windows-setup.html for full details.
 
 if [ "$OSTYPE" != "msys" ]; then
   echo "This setup script expects to be run from an MSYS2 environment on Windows."
@@ -40,8 +40,6 @@ pacman --noconfirm -S --needed gettext-devel gcc git make ncurses-devel flex bis
 rm -f /mingw32/bin/envsubst.exe
 
 python -m pip install --upgrade pip
-
-pip install pyserial
 
 # Automatically download precompiled toolchain, unpack at /opt/xtensa-esp32-elf/
 TOOLCHAIN_ZIP=xtensa-esp32-elf-win32-1.22.0-80-g6c4433a-5.2.0.zip

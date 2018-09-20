@@ -163,7 +163,7 @@ Open terminal, go to directory where OpenOCD is installed and start it up::
 
 .. note::
 
-    The files provided after ``-f`` above, are specific for ESP-WROVER-KIT with ESP-WROOM-32 module. You may need to provide different files depending on used hardware, For guidance see :ref:`jtag-debugging-tip-openocd-configure-target`.
+    The files provided after ``-f`` above, are specific for ESP-WROVER-KIT with :ref:`esp-modules-and-boards-esp32-wroom-32` module. You may need to provide different files depending on used hardware, For guidance see :ref:`jtag-debugging-tip-openocd-configure-target`.
 
 .. highlight:: none
 
@@ -281,6 +281,7 @@ This section provides collection of links to all tips and quirks referred to fro
 
 * :ref:`jtag-debugging-tip-breakpoints`
 * :ref:`jtag-debugging-tip-where-breakpoints`
+* :ref:`jtag-debugging-tip-flash-mappings`
 * :ref:`jtag-debugging-tip-why-next-works-as-step`
 * :ref:`jtag-debugging-tip-code-options`
 * :ref:`jtag-debugging-tip-freertos-support`

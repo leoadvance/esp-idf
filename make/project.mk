@@ -13,7 +13,7 @@
 .PHONY: build-components menuconfig defconfig all build clean all_binaries check-submodules size size-components size-files size-symbols list-components
 
 MAKECMDGOALS ?= all
-all: all_binaries
+all: all_binaries | check_python_dependencies
 # see below for recipe of 'all' target
 #
 # # other components will add dependencies to 'all_binaries'. The
@@ -34,6 +34,7 @@ help:
 	@echo "make size-components, size-files - Finer-grained memory footprints"
 	@echo "make size-symbols - Per symbol memory footprint. Requires COMPONENT=<component>"
 	@echo "make erase_flash - Erase entire flash contents"
+	@echo "make erase_ota - Erase ota_data partition. After that will boot first bootable partition (factory or OTAx)."
 	@echo "make monitor - Run idf_monitor tool to monitor serial output from app"
 	@echo "make simple_monitor - Monitor serial output on terminal console"
 	@echo "make list-components - List all components in the project"
@@ -42,12 +43,13 @@ help:
 	@echo "make app-flash - Flash just the app"
 	@echo "make app-clean - Clean just the app"
 	@echo "make print_flash_cmd - Print the arguments for esptool when flash"
+	@echo "make check_python_dependencies - Check that the required python packages are installed"
 	@echo ""
 	@echo "See also 'make bootloader', 'make bootloader-flash', 'make bootloader-clean', "
 	@echo "'make partition_table', etc, etc."
 
 # Non-interactive targets. Mostly, those for which you do not need to build a binary
-NON_INTERACTIVE_TARGET += defconfig clean% %clean help list-components print_flash_cmd
+NON_INTERACTIVE_TARGET += defconfig clean% %clean help list-components print_flash_cmd check_python_dependencies
 
 # dependency checks
 ifndef MAKE_RESTARTS
@@ -168,12 +170,13 @@ COMPONENT_PATHS := $(foreach comp,$(COMPONENTS),$(firstword $(foreach cd,$(COMPO
 export COMPONENT_PATHS
 
 TEST_COMPONENTS ?=
+TEST_EXCLUDE_COMPONENTS ?=
 TESTS_ALL ?=
 
 # If TESTS_ALL set to 1, set TEST_COMPONENTS_LIST to all components.
 # Otherwise, use the list supplied in TEST_COMPONENTS.
 ifeq ($(TESTS_ALL),1)
-TEST_COMPONENTS_LIST := $(COMPONENTS)
+TEST_COMPONENTS_LIST := $(filter-out $(TEST_EXCLUDE_COMPONENTS), $(COMPONENTS))
 else
 TEST_COMPONENTS_LIST := $(TEST_COMPONENTS)
 endif
@@ -344,7 +347,9 @@ else
 CXXFLAGS += -fno-exceptions
 endif
 
-export CFLAGS CPPFLAGS CXXFLAGS
+ARFLAGS := cru
+
+export CFLAGS CPPFLAGS CXXFLAGS ARFLAGS
 
 # Set default values that were not previously defined
 CC ?= gcc
@@ -406,15 +411,23 @@ $(APP_ELF): $(foreach libcomp,$(COMPONENT_LIBRARIES),$(BUILD_DIR_BASE)/$(libcomp
 	$(summary) LD $(patsubst $(PWD)/%,%,$@)
 	$(CC) $(LDFLAGS) -o $@ -Wl,-Map=$(APP_MAP)
 
-app: $(APP_BIN)
+app: $(APP_BIN) partition_table_get_info
 ifeq ("$(CONFIG_SECURE_BOOT_ENABLED)$(CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES)","y") # secure boot enabled, but remote sign app image
 	@echo "App built but not signed. Signing step via espsecure.py:"
 	@echo "espsecure.py sign_data --keyfile KEYFILE $(APP_BIN)"
 	@echo "Then flash app command is:"
-	@echo $(ESPTOOLPY_WRITE_FLASH) $(CONFIG_APP_OFFSET) $(APP_BIN)
+	@echo $(ESPTOOLPY_WRITE_FLASH) $(APP_OFFSET) $(APP_BIN)
 else
 	@echo "App built. Default flash app command is:"
-	@echo $(ESPTOOLPY_WRITE_FLASH) $(CONFIG_APP_OFFSET) $(APP_BIN)
+	@echo $(ESPTOOLPY_WRITE_FLASH) $(APP_OFFSET) $(APP_BIN)
+endif
+
+.PHONY: check_python_dependencies
+
+# Notify users when some of the required python packages are not installed
+check_python_dependencies:
+ifndef IS_BOOTLOADER_BUILD
+	$(PYTHON) $(IDF_PATH)/tools/check_python_dependencies.py
 endif
 
 all_binaries: $(APP_BIN)
@@ -472,16 +485,16 @@ app-clean: $(addprefix component-,$(addsuffix -clean,$(notdir $(COMPONENT_PATHS)
 	$(summary) RM $(APP_ELF)
 	rm -f $(APP_ELF) $(APP_BIN) $(APP_MAP)
 
-size: $(APP_ELF)
+size: $(APP_ELF) | check_python_dependencies
 	$(PYTHON) $(IDF_PATH)/tools/idf_size.py $(APP_MAP)
 
-size-files: $(APP_ELF)
+size-files: $(APP_ELF) | check_python_dependencies
 	$(PYTHON) $(IDF_PATH)/tools/idf_size.py --files $(APP_MAP)
 
-size-components: $(APP_ELF)
+size-components: $(APP_ELF) | check_python_dependencies
 	$(PYTHON) $(IDF_PATH)/tools/idf_size.py --archives $(APP_MAP)
 
-size-symbols: $(APP_ELF)
+size-symbols: $(APP_ELF) | check_python_dependencies
 ifndef COMPONENT
 	$(error "ERROR: Please enter the component to look symbols for, e.g. COMPONENT=heap")
 else
@@ -534,17 +547,17 @@ list-components:
 	$(info COMPONENT_DIRS (components searched for here))
 	$(foreach cd,$(COMPONENT_DIRS),$(info $(cd)))
 	$(info $(call dequote,$(SEPARATOR)))
-	$(info COMPONENTS (list of component names))
-	$(info $(COMPONENTS))
+	$(info TEST_COMPONENTS (list of test component names))
+	$(info $(TEST_COMPONENTS_LIST))
 	$(info $(call dequote,$(SEPARATOR)))
-	$(info EXCLUDE_COMPONENTS (list of excluded names))
-	$(info $(if $(EXCLUDE_COMPONENTS),$(EXCLUDE_COMPONENTS),(none provided)))	
+	$(info TEST_EXCLUDE_COMPONENTS (list of test excluded names))
+	$(info $(if $(EXCLUDE_COMPONENTS) || $(TEST_EXCLUDE_COMPONENTS),$(EXCLUDE_COMPONENTS) $(TEST_EXCLUDE_COMPONENTS),(none provided)))	
 	$(info $(call dequote,$(SEPARATOR)))
 	$(info COMPONENT_PATHS (paths to all components):)
 	$(foreach cp,$(COMPONENT_PATHS),$(info $(cp)))
 
 # print flash command, so users can dump this to config files and download somewhere without idf
-print_flash_cmd:
+print_flash_cmd: partition_table_get_info blank_ota_data
 	echo $(ESPTOOL_WRITE_FLASH_OPTIONS) $(ESPTOOL_ALL_FLASH_ARGS) | sed -e 's:'$(PWD)/build/'::g'
 
 # Check toolchain version using the output of xtensa-esp32-elf-gcc --version command.

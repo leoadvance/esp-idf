@@ -7,5 +7,8 @@ Protocols API
    mDNS <mdns>
    ESP-TLS <esp_tls>
    HTTP Client <esp_http_client>
+   HTTP Server <http_server>
+   ASIO <asio>
+   ESP-MQTT <mqtt>
 
 Example code for this API section is provided in :example:`protocols` directory of ESP-IDF examples.

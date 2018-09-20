@@ -143,7 +143,7 @@ void app_main()
                     ledc_channel[ch].channel, LEDC_FADE_NO_WAIT);
         }
         vTaskDelay(LEDC_TEST_FADE_TIME / portTICK_PERIOD_MS);
-        // 注释测试
+
         printf("3. LEDC set duty = %d without fade\n", LEDC_TEST_DUTY);
         for (ch = 0; ch < LEDC_TEST_CH_NUM; ch++) {
             ledc_set_duty(ledc_channel[ch].speed_mode, ledc_channel[ch].channel, LEDC_TEST_DUTY);

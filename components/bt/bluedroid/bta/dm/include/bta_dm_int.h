@@ -61,6 +61,7 @@ enum {
     /* security API events */
     BTA_DM_API_BOND_EVT,
     BTA_DM_API_BOND_CANCEL_EVT,
+    BTA_DM_API_SET_PIN_TYPE_EVT,
     BTA_DM_API_PIN_REPLY_EVT,
 #endif  ///SMP_INCLUDED == TRUE
 #if (BTA_DM_PM_INCLUDED == TRUE)
@@ -71,7 +72,9 @@ enum {
 #if (SMP_INCLUDED == TRUE)
     /* simple pairing events */
     BTA_DM_API_CONFIRM_EVT,
-
+#if (BT_SSP_INCLUDED == TRUE)
+    BTA_DM_API_KEY_REQ_EVT,
+#endif ///BT_SSP_INCLUDED == TRUE
     BTA_DM_API_SET_ENCRYPTION_EVT,
 #endif  ///SMP_INCLUDED == TRUE
 #if (BTM_OOB_INCLUDED == TRUE && SMP_INCLUDED == TRUE)
@@ -86,6 +89,7 @@ enum {
     BTA_DM_API_ADD_BLEKEY_EVT,
     BTA_DM_API_ADD_BLEDEVICE_EVT,
     BTA_DM_API_BLE_PASSKEY_REPLY_EVT,
+    BTA_DM_API_BLE_SET_STATIC_PASSKEY_EVT,
     BTA_DM_API_BLE_CONFIRM_REPLY_EVT,
     BTA_DM_API_BLE_SEC_GRANT_EVT,
 #endif  ///SMP_INCLUDED == TRUE
@@ -196,6 +200,7 @@ typedef struct {
 typedef struct {
     BT_HDR        hdr;
     BD_ADDR       remote_addr;
+    tBTA_TRANSPORT  transport;
     tBTA_CMPL_CB  *read_rssi_cb;
 }tBTA_DM_API_READ_RSSI;
 
@@ -270,6 +275,14 @@ typedef struct {
     tBTA_TRANSPORT  transport;
 } tBTA_DM_API_BOND_CANCEL;
 
+/* data type for BTA_DM_API_SET_PIN_TYPE_EVT */
+typedef struct {
+    BT_HDR      hdr;
+    UINT8       pin_type;
+    UINT8       pin_len;
+    UINT8       p_pin[PIN_CODE_LEN];
+} tBTA_DM_API_SET_PIN_TYPE;
+
 /* data type for BTA_DM_API_PIN_REPLY_EVT */
 typedef struct {
     BT_HDR      hdr;
@@ -290,6 +303,14 @@ typedef struct {
     BD_ADDR     bd_addr;
     BOOLEAN     accept;
 } tBTA_DM_API_CONFIRM;
+
+/* data type for BTA_DM_API_KEY_REQ_EVT */
+typedef struct {
+    BT_HDR      hdr;
+    BD_ADDR     bd_addr;
+    BOOLEAN     accept;
+    UINT32      passkey;
+} tBTA_DM_API_KEY_REQ;
 
 /* data type for BTA_DM_CI_IO_REQ_EVT */
 typedef struct {
@@ -391,6 +412,7 @@ typedef struct {
 typedef struct {
     BT_HDR              hdr;
     BD_ADDR             bd_addr;
+    UINT8               transport;
 } tBTA_DM_API_REMOVE_DEVICE;
 
 /* data type for BTA_DM_API_EXECUTE_CBACK_EVT */
@@ -432,6 +454,12 @@ typedef struct {
     BOOLEAN                 accept;
     UINT32                  passkey;
 } tBTA_DM_API_PASSKEY_REPLY;
+
+typedef struct {
+    BT_HDR                  hdr;
+    BOOLEAN                 add;      
+    UINT32                  static_passkey;
+} tBTA_DM_API_SET_DEFAULT_PASSKEY;
 
 typedef struct {
     BT_HDR                  hdr;
@@ -742,10 +770,12 @@ typedef union {
 
     tBTA_DM_API_BOND_CANCEL bond_cancel;
 
+    tBTA_DM_API_SET_PIN_TYPE set_pin_type;
     tBTA_DM_API_PIN_REPLY pin_reply;
 
     tBTA_DM_API_LOC_OOB     loc_oob;
     tBTA_DM_API_CONFIRM     confirm;
+    tBTA_DM_API_KEY_REQ     key_req;
     tBTA_DM_CI_IO_REQ       ci_io_req;
     tBTA_DM_CI_RMT_OOB      ci_rmt_oob;
 
@@ -775,6 +805,7 @@ typedef union {
     tBTA_DM_API_ADD_BLEKEY              add_ble_key;
     tBTA_DM_API_ADD_BLE_DEVICE          add_ble_device;
     tBTA_DM_API_PASSKEY_REPLY           ble_passkey_reply;
+    tBTA_DM_API_SET_DEFAULT_PASSKEY     ble_set_static_passkey;
     tBTA_DM_API_BLE_SEC_GRANT           ble_sec_grant;
     tBTA_DM_API_BLE_SET_BG_CONN_TYPE    ble_set_bd_conn_type;
     tBTA_DM_API_BLE_CONN_PARAMS         ble_set_conn_params;
@@ -1164,6 +1195,7 @@ extern void bta_dm_set_scan_config(tBTA_DM_MSG *p_data);
 extern void bta_dm_vendor_spec_command(tBTA_DM_MSG *p_data);
 extern void bta_dm_bond (tBTA_DM_MSG *p_data);
 extern void bta_dm_bond_cancel (tBTA_DM_MSG *p_data);
+extern void bta_dm_set_pin_type (tBTA_DM_MSG *p_data);
 extern void bta_dm_pin_reply (tBTA_DM_MSG *p_data);
 extern void bta_dm_acl_change(tBTA_DM_MSG *p_data);
 extern void bta_dm_add_device (tBTA_DM_MSG *p_data);
@@ -1176,6 +1208,7 @@ extern void bta_dm_add_ampkey (tBTA_DM_MSG *p_data);
 extern void bta_dm_add_blekey (tBTA_DM_MSG *p_data);
 extern void bta_dm_add_ble_device (tBTA_DM_MSG *p_data);
 extern void bta_dm_ble_passkey_reply (tBTA_DM_MSG *p_data);
+extern void bta_dm_ble_set_static_passkey(tBTA_DM_MSG *p_data);
 extern void bta_dm_ble_confirm_reply (tBTA_DM_MSG *p_data);
 extern void bta_dm_security_grant (tBTA_DM_MSG *p_data);
 extern void bta_dm_ble_set_bg_conn_type (tBTA_DM_MSG *p_data);
@@ -1223,6 +1256,7 @@ extern void bta_dm_ble_get_energy_info(tBTA_DM_MSG *p_data);
 #endif
 extern void bta_dm_set_encryption(tBTA_DM_MSG *p_data);
 extern void bta_dm_confirm(tBTA_DM_MSG *p_data);
+extern void bta_dm_key_req(tBTA_DM_MSG *p_data);
 #if (BTM_OOB_INCLUDED == TRUE)
 extern void bta_dm_loc_oob(tBTA_DM_MSG *p_data);
 extern void bta_dm_ci_io_req_act(tBTA_DM_MSG *p_data);

@@ -5,7 +5,7 @@ Introduction
 ------------
 
 :component_file:`nvs_flash/nvs_partition_generator/nvs_partition_gen.py` utility is designed to help create a binary file, compatible with NVS architecture defined in :doc:`Non-Volatile Storage </api-reference/storage/nvs_flash>`, based on user provided key-value pairs in a CSV file.
-Utility is ideally suited for generating a binary blob, containing data specific to ODM/OEM, which can be flashed externally at the time of device manufacturing. This helps manufacturers set unique value for various parameters for each device, e.g. serial number, while using same application firmaware for all devices.
+Utility is ideally suited for generating a binary blob, containing data specific to ODM/OEM, which can be flashed externally at the time of device manufacturing. This helps manufacturers set unique value for various parameters for each device, e.g. serial number, while using same application firmware for all devices.
 
 CSV file format
 ---------------
@@ -19,9 +19,9 @@ Type
 	Supported values are ``file``, ``data`` and ``namespace``.
 
 Encoding
-    Supported values are: ``u8``, ``i8``, ``u16``, ``u32``, ``i32``, ``string``, ``hex2bin`` and ``binary``. This specifies how actual data values are encoded in the resultant binary file. Difference between ``string`` and ``binary`` encoding is that ``string`` data is terminated with a NULL character, whereas ``binary`` data is not.
+    Supported values are: ``u8``, ``i8``, ``u16``, ``u32``, ``i32``, ``string``, ``hex2bin``, ``base64`` and ``binary``. This specifies how actual data values are encoded in the resultant binary file. Difference between ``string`` and ``binary`` encoding is that ``string`` data is terminated with a NULL character, whereas ``binary`` data is not.
 
-    .. note:: For ``file`` type, only ``hex2bin``, ``string`` and ``binary`` is supported as of now.
+    .. note:: For ``file`` type, only ``hex2bin``, ``base64``, ``string`` and ``binary`` is supported as of now.
 
 Value
 	Data value.
@@ -49,9 +49,19 @@ When a new namespace entry is encountered in the CSV file, each follow-up entrie
 Running the utility
 -------------------
 
-A sample CSV file provided with the utility. You can run the utility using below command::
+You can run the utility using below command::
 
-    python nvs_partition_generator.py sample.csv sample.bin
+	python nvs_partition_gen.py [-h] input output size
+
+
+Positional arguments:
+
+| Arguments 					| Description
+|	---		  					| 	---
+|  input          			| Path to CSV file to parse. Will use stdin if omitted (a sample.csv is provided)
+|  output         			| Path to output converted binary file. Will use stdout if omitted
+|  size    	    		    | Size of NVS Partition in KB. E.g. 12KB
+
 
 Caveats
 -------

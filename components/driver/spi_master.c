@@ -1,4 +1,4 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
+// Copyright 2015-2018 Espressif Systems (Shanghai) PTE LTD
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -36,10 +36,8 @@ queue and re-enabling the interrupt will trigger the interrupt again, which can 
 #include <string.h>
 #include "driver/spi_common.h"
 #include "driver/spi_master.h"
-#include "soc/gpio_sig_map.h"
-#include "soc/spi_reg.h"
 #include "soc/dport_reg.h"
-#include "soc/spi_struct.h"
+#include "soc/spi_periph.h"
 #include "rom/ets_sys.h"
 #include "esp_types.h"
 #include "esp_attr.h"
@@ -66,6 +64,18 @@ typedef typeof(SPI1.clock) spi_clock_reg_t;
 
 #define NO_CS 3     //Number of CS pins per SPI host
 
+#ifdef CONFIG_SPI_MASTER_ISR_IN_IRAM
+#define SPI_MASTER_ISR_ATTR IRAM_ATTR
+#else
+#define SPI_MASTER_ISR_ATTR
+#endif
+
+#ifdef CONFIG_SPI_MASTER_IN_IRAM
+#define SPI_MASTER_ATTR IRAM_ATTR
+#else
+#define SPI_MASTER_ATTR
+#endif
+
 
 /// struct to hold private transaction data (like tx and rx buffer for DMA).
 typedef struct {
@@ -87,6 +97,7 @@ typedef struct {
     uint32_t flags;
     int dma_chan;
     int max_transfer_sz;
+    spi_bus_config_t bus_cfg;
 #ifdef CONFIG_PM_ENABLE
     esp_pm_lock_handle_t pm_lock;
 #endif
@@ -148,6 +159,7 @@ esp_err_t spi_bus_initialize(spi_host_device_t host, const spi_bus_config_t *bus
         goto cleanup;
     }
     memset(spihost[host], 0, sizeof(spi_host_t));
+    memcpy( &spihost[host]->bus_cfg, bus_config, sizeof(spi_bus_config_t));
 #ifdef CONFIG_PM_ENABLE
     err = esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "spi_master",
             &spihost[host]->pm_lock);
@@ -165,7 +177,7 @@ esp_err_t spi_bus_initialize(spi_host_device_t host, const spi_bus_config_t *bus
 
     spihost[host]->dma_chan=dma_chan;
     if (dma_chan == 0) {
-        spihost[host]->max_transfer_sz = 32;
+        spihost[host]->max_transfer_sz = 64;
     } else {
         //See how many dma descriptors we need and allocate them
         int dma_desc_ct=(bus_config->max_transfer_sz+SPI_MAX_DMA_LEN-1)/SPI_MAX_DMA_LEN;
@@ -179,7 +191,11 @@ esp_err_t spi_bus_initialize(spi_host_device_t host, const spi_bus_config_t *bus
         }
     }
 
-    err = esp_intr_alloc(spicommon_irqsource_for_host(host), ESP_INTR_FLAG_INTRDISABLED, spi_intr, (void*)spihost[host], &spihost[host]->intr);
+    int flags = ESP_INTR_FLAG_INTRDISABLED;
+#ifdef CONFIG_SPI_MASTER_ISR_IN_IRAM
+    flags |= ESP_INTR_FLAG_IRAM;
+#endif
+    err = esp_intr_alloc(spicommon_irqsource_for_host(host), flags, spi_intr, (void*)spihost[host], &spihost[host]->intr);
     if (err != ESP_OK) {
         ret = err;
         goto cleanup;
@@ -196,6 +212,10 @@ esp_err_t spi_bus_initialize(spi_host_device_t host, const spi_bus_config_t *bus
     spihost[host]->hw->dma_conf.val&=~(SPI_OUT_RST|SPI_IN_RST|SPI_AHBM_RST|SPI_AHBM_FIFO_RST);
     //Reset timing
     spihost[host]->hw->ctrl2.val=0;
+
+    //master use all 64 bytes of the buffer
+    spihost[host]->hw->user.usr_miso_highpart=0;
+    spihost[host]->hw->user.usr_mosi_highpart=0;
 
     //Disable unneeded ints
     spihost[host]->hw->slave.rd_buf_done=0;
@@ -239,6 +259,7 @@ esp_err_t spi_bus_free(spi_host_device_t host)
     for (x=0; x<NO_CS; x++) {
         SPI_CHECK(spihost[host]->device[x]==NULL, "not all CSses freed", ESP_ERR_INVALID_STATE);
     }
+    spicommon_bus_free_io_cfg(&spihost[host]->bus_cfg);
 
     if ( spihost[host]->dma_chan > 0 ) {
         spicommon_dma_chan_free ( spihost[host]->dma_chan );
@@ -316,8 +337,7 @@ esp_err_t spi_bus_add_device(spi_host_device_t host, const spi_device_interface_
     SPI_CHECK(freecs!=NO_CS, "no free cs pins for host", ESP_ERR_NOT_FOUND);
     //The hardware looks like it would support this, but actually setting cs_ena_pretrans when transferring in full
     //duplex mode does absolutely nothing on the ESP32.
-    SPI_CHECK(dev_config->cs_ena_pretrans <= 1 || (dev_config->flags & SPI_DEVICE_HALFDUPLEX), "cs pretrans delay > 1 incompatible with full-duplex", ESP_ERR_INVALID_ARG);
-    SPI_CHECK( dev_config->cs_ena_pretrans != 1 || (dev_config->address_bits == 0 && dev_config->command_bits == 0) ||
+    SPI_CHECK( dev_config->cs_ena_pretrans <= 1 || (dev_config->address_bits == 0 && dev_config->command_bits == 0) ||
         (dev_config->flags & SPI_DEVICE_HALFDUPLEX), "In full-duplex mode, only support cs pretrans delay = 1 and without address_bits and command_bits", ESP_ERR_INVALID_ARG);
 
     duty_cycle = (dev_config->duty_cycle_pos==0? 128: dev_config->duty_cycle_pos);
@@ -396,6 +416,10 @@ esp_err_t spi_bus_remove_device(spi_device_handle_t handle)
     SPI_CHECK(uxQueueMessagesWaiting(handle->trans_queue)==0, "Have unfinished transactions", ESP_ERR_INVALID_STATE);
     SPI_CHECK(handle->host->cur_cs == NO_CS || handle->host->device[handle->host->cur_cs]!=handle, "Have unfinished transactions", ESP_ERR_INVALID_STATE);
     SPI_CHECK(uxQueueMessagesWaiting(handle->ret_queue)==0, "Have unfinished transactions", ESP_ERR_INVALID_STATE);
+
+    //return
+    int spics_io_num = handle->cfg.spics_io_num;
+    if (spics_io_num >= 0) spicommon_cs_free_io(spics_io_num);
 
     //Kill queues
     vQueueDelete(handle->trans_queue);
@@ -481,7 +505,7 @@ static inline void spi_set_clock(spi_dev_t *hw, spi_clock_reg_t reg) {
 //This is run in interrupt context and apart from initialization and destruction, this is the only code
 //touching the host (=spihost[x]) variable. The rest of the data arrives in queues. That is why there are
 //no muxes in this code.
-static void IRAM_ATTR spi_intr(void *arg)
+static void SPI_MASTER_ISR_ATTR spi_intr(void *arg)
 {
     int i;
     BaseType_t r;
@@ -587,6 +611,8 @@ static void IRAM_ATTR spi_intr(void *arg)
         host->hw->dma_in_link.start=0;
         host->hw->dma_conf.val &= ~(SPI_OUT_RST|SPI_IN_RST|SPI_AHBM_RST|SPI_AHBM_FIFO_RST);
         host->hw->dma_conf.out_data_burst_en=1;
+        host->hw->dma_conf.indscr_burst_en=1;
+        host->hw->dma_conf.outdscr_burst_en=1;
         //Set up QIO/DIO if needed
         host->hw->ctrl.val &= ~(SPI_FREAD_DUAL|SPI_FREAD_QUAD|SPI_FREAD_DIO|SPI_FREAD_QIO);
         host->hw->user.val &= ~(SPI_FWRITE_DUAL|SPI_FWRITE_QUAD|SPI_FWRITE_DIO|SPI_FWRITE_QIO);
@@ -613,7 +639,6 @@ static void IRAM_ATTR spi_intr(void *arg)
         //Fill DMA descriptors
         int extra_dummy=0;
         if (trans_buf->buffer_to_rcv) {
-            host->hw->user.usr_miso_highpart=0;
             if (host->dma_chan == 0) {
                 //No need to setup anything; we'll copy the result out of the work registers directly later.
             } else {
@@ -642,16 +667,13 @@ static void IRAM_ATTR spi_intr(void *arg)
                     //Use memcpy to get around alignment issues for txdata
                     uint32_t word;
                     memcpy(&word, &trans_buf->buffer_to_send[x/32], 4);
-                    host->hw->data_buf[(x/32)+8]=word;
+                    host->hw->data_buf[(x/32)]=word;
                 }
-                host->hw->user.usr_mosi_highpart=1;
             } else {
                 spicommon_dmaworkaround_transfer_active(host->dma_chan); //mark channel as active
                 spicommon_setup_dma_desc_links(host->dmadesc_tx, (trans->length+7)/8, (uint8_t*)trans_buf->buffer_to_send, false);
-                host->hw->user.usr_mosi_highpart=0;
                 host->hw->dma_out_link.addr=(int)(&host->dmadesc_tx[0]) & 0xFFFFF;
                 host->hw->dma_out_link.start=1;
-                host->hw->user.usr_mosi_highpart=0;
             }
         }
 
@@ -690,25 +712,37 @@ static void IRAM_ATTR spi_intr(void *arg)
 
         //Configure bit sizes, load addr and command
         int cmdlen;
-        if ( trans->flags & SPI_TRANS_VARIABLE_CMD ) {
-            cmdlen = ((spi_transaction_ext_t*)trans)->command_bits;
-        } else {
-            cmdlen = dev->cfg.command_bits;
-        }
         int addrlen;
-        if ( trans->flags & SPI_TRANS_VARIABLE_ADDR ) {
-            addrlen = ((spi_transaction_ext_t*)trans)->address_bits;
+        if (!(dev->cfg.flags & SPI_DEVICE_HALFDUPLEX) && dev->cfg.cs_ena_pretrans != 0) {
+            /* The command and address phase is not compatible with cs_ena_pretrans
+             * in full duplex mode.
+             */
+            cmdlen = 0;
+            addrlen = 0;
         } else {
-            addrlen = dev->cfg.address_bits;
+            if (trans->flags & SPI_TRANS_VARIABLE_CMD) {
+                cmdlen = ((spi_transaction_ext_t *)trans)->command_bits;
+            } else {
+                cmdlen = dev->cfg.command_bits;
+            }
+            if (trans->flags & SPI_TRANS_VARIABLE_ADDR) {
+                addrlen = ((spi_transaction_ext_t *)trans)->address_bits;
+            } else {
+                addrlen = dev->cfg.address_bits;
+            }
         }
+
         host->hw->user1.usr_addr_bitlen=addrlen-1;
         host->hw->user2.usr_command_bitlen=cmdlen-1;
         host->hw->user.usr_addr=addrlen?1:0;
         host->hw->user.usr_command=cmdlen?1:0;
 
-        // output command will be sent from bit 7 to 0 of command_value, and then bit 15 to 8 of the same register field.
-        uint16_t command = trans->cmd << (16-cmdlen);    //shift to MSB
-        host->hw->user2.usr_command_value = (command>>8)|(command<<8);  //swap the first and second byte
+        /* Output command will be sent from bit 7 to 0 of command_value, and
+         * then bit 15 to 8 of the same register field. Shift and swap to send
+         * more straightly.
+         */
+        host->hw->user2.usr_command_value = SPI_SWAP_DATA_TX(trans->cmd, cmdlen);
+
         // shift the address to MSB of addr (and maybe slv_wr_status) register.
         // output address will be sent from MSB to LSB of addr register, then comes the MSB to LSB of slv_wr_status register.
         if (addrlen>32) {
@@ -730,7 +764,7 @@ static void IRAM_ATTR spi_intr(void *arg)
 }
 
 
-esp_err_t spi_device_queue_trans(spi_device_handle_t handle, spi_transaction_t *trans_desc,  TickType_t ticks_to_wait)
+esp_err_t SPI_MASTER_ATTR spi_device_queue_trans(spi_device_handle_t handle, spi_transaction_t *trans_desc,  TickType_t ticks_to_wait)
 {
     esp_err_t ret = ESP_OK;
     BaseType_t r;
@@ -822,7 +856,7 @@ clean_up:
     return ret;
 }
 
-esp_err_t spi_device_get_trans_result(spi_device_handle_t handle, spi_transaction_t **trans_desc, TickType_t ticks_to_wait)
+esp_err_t SPI_MASTER_ATTR spi_device_get_trans_result(spi_device_handle_t handle, spi_transaction_t **trans_desc, TickType_t ticks_to_wait)
 {
     BaseType_t r;
     spi_trans_priv trans_buf;
@@ -856,7 +890,7 @@ esp_err_t spi_device_get_trans_result(spi_device_handle_t handle, spi_transactio
 }
 
 //Porcelain to do one blocking transmission.
-esp_err_t spi_device_transmit(spi_device_handle_t handle, spi_transaction_t *trans_desc)
+esp_err_t SPI_MASTER_ATTR spi_device_transmit(spi_device_handle_t handle, spi_transaction_t *trans_desc)
 {
     esp_err_t ret;
     spi_transaction_t *ret_trans;

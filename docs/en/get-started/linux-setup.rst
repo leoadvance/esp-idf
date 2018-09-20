@@ -1,8 +1,7 @@
-﻿*************************************
+*************************************
 Standard Setup of Toolchain for Linux
 *************************************
 :link_to_translation:`zh_CN:[中文]`
-
 
 Install Prerequisites
 =====================
@@ -15,12 +14,17 @@ To compile with ESP-IDF you need to get the following packages:
 
 - Ubuntu and Debian::
 
-    sudo apt-get install gcc git wget make libncurses-dev flex bison gperf python python-serial
+    sudo apt-get install gcc git wget make libncurses-dev flex bison gperf python python-pip python-setuptools python-serial
 
 - Arch::
 
     sudo pacman -S --needed gcc git make ncurses flex bison gperf python2-pyserial
 
+.. note::
+
+    Some older (pre-2014) Linux distributions may use ``pyserial`` version 2.x which is not supported by ESP-IDF.
+    In this case please install a supported version via ``pip`` as it is described in section
+    :ref:`get-started-get-packages`.
 
 Toolchain Setup
 ===============
@@ -57,7 +61,7 @@ ESP32 toolchain for Linux is available for download from Espressif website:
 
     .. note::
 
-        If you have ``/bin/bash`` set as login shell, and both ``.bash_profile`` and ``.profile`` exist, then update ``.bash_profile`` instead.
+        If you have ``/bin/bash`` set as login shell, and both ``.bash_profile`` and ``.profile`` exist, then update ``.bash_profile`` instead. In CentOS, ``alias`` should set in ``.bashrc``.
 
 3.  Log off and log in back to make the ``.profile`` changes effective. Run the following command to verify if ``PATH`` is correctly set::
 

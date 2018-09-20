@@ -717,6 +717,20 @@ int access(const char *path, int amode)
     return ret;
 }
 
+int truncate(const char *path, off_t length)
+{
+    int ret;
+    const vfs_entry_t* vfs = get_vfs_for_path(path);
+    struct _reent* r = __getreent();
+    if (vfs == NULL) {
+        __errno_r(r) = ENOENT;
+        return -1;
+    }
+    const char* path_within_vfs = translate_path(vfs, path);
+    CHECK_AND_CALL(ret, r, vfs, truncate, path_within_vfs, length);
+    return ret;
+}
+
 static void call_end_selects(int end_index, const fds_triple_t *vfs_fds_triple)
 {
     for (int i = 0; i < end_index; ++i) {
@@ -980,3 +994,103 @@ void esp_vfs_select_triggered_isr(SemaphoreHandle_t *signal_sem, BaseType_t *wok
         }
     }
 }
+
+#ifdef CONFIG_SUPPORT_TERMIOS
+int tcgetattr(int fd, struct termios *p)
+{
+    const vfs_entry_t* vfs = get_vfs_for_fd(fd);
+    const int local_fd = get_local_fd(vfs, fd);
+    struct _reent* r = __getreent();
+    if (vfs == NULL || local_fd < 0) {
+        __errno_r(r) = EBADF;
+        return -1;
+    }
+    int ret;
+    CHECK_AND_CALL(ret, r, vfs, tcgetattr, local_fd, p);
+    return ret;
+}
+
+int tcsetattr(int fd, int optional_actions, const struct termios *p)
+{
+    const vfs_entry_t* vfs = get_vfs_for_fd(fd);
+    const int local_fd = get_local_fd(vfs, fd);
+    struct _reent* r = __getreent();
+    if (vfs == NULL || local_fd < 0) {
+        __errno_r(r) = EBADF;
+        return -1;
+    }
+    int ret;
+    CHECK_AND_CALL(ret, r, vfs, tcsetattr, local_fd, optional_actions, p);
+    return ret;
+}
+
+int tcdrain(int fd)
+{
+    const vfs_entry_t* vfs = get_vfs_for_fd(fd);
+    const int local_fd = get_local_fd(vfs, fd);
+    struct _reent* r = __getreent();
+    if (vfs == NULL || local_fd < 0) {
+        __errno_r(r) = EBADF;
+        return -1;
+    }
+    int ret;
+    CHECK_AND_CALL(ret, r, vfs, tcdrain, local_fd);
+    return ret;
+}
+
+int tcflush(int fd, int select)
+{
+    const vfs_entry_t* vfs = get_vfs_for_fd(fd);
+    const int local_fd = get_local_fd(vfs, fd);
+    struct _reent* r = __getreent();
+    if (vfs == NULL || local_fd < 0) {
+        __errno_r(r) = EBADF;
+        return -1;
+    }
+    int ret;
+    CHECK_AND_CALL(ret, r, vfs, tcflush, local_fd, select);
+    return ret;
+}
+
+int tcflow(int fd, int action)
+{
+    const vfs_entry_t* vfs = get_vfs_for_fd(fd);
+    const int local_fd = get_local_fd(vfs, fd);
+    struct _reent* r = __getreent();
+    if (vfs == NULL || local_fd < 0) {
+        __errno_r(r) = EBADF;
+        return -1;
+    }
+    int ret;
+    CHECK_AND_CALL(ret, r, vfs, tcflow, local_fd, action);
+    return ret;
+}
+
+pid_t tcgetsid(int fd)
+{
+    const vfs_entry_t* vfs = get_vfs_for_fd(fd);
+    const int local_fd = get_local_fd(vfs, fd);
+    struct _reent* r = __getreent();
+    if (vfs == NULL || local_fd < 0) {
+        __errno_r(r) = EBADF;
+        return -1;
+    }
+    int ret;
+    CHECK_AND_CALL(ret, r, vfs, tcgetsid, local_fd);
+    return ret;
+}
+
+int tcsendbreak(int fd, int duration)
+{
+    const vfs_entry_t* vfs = get_vfs_for_fd(fd);
+    const int local_fd = get_local_fd(vfs, fd);
+    struct _reent* r = __getreent();
+    if (vfs == NULL || local_fd < 0) {
+        __errno_r(r) = EBADF;
+        return -1;
+    }
+    int ret;
+    CHECK_AND_CALL(ret, r, vfs, tcsendbreak, local_fd, duration);
+    return ret;
+}
+#endif // CONFIG_SUPPORT_TERMIOS
